@@ -1,0 +1,92 @@
+AWSTemplateFormatVersion: 2010-09-09
+Description: >-
+  url-shortener-api
+Transform:
+- AWS::Serverless-2016-10-31
+
+# Resources declares the AWS resources that you want to include in the stack
+# https://docs.aws.amazon.com/AWSCloudFormation/latest/UserGuide/resources-section-structure.html
+Resources:
+  # 1. Our DynamoDB Database Table
+  LinksTable:
+    Type: AWS::Serverless::SimpleTable
+    Properties:
+      PrimaryKey:
+        Name: shortId
+        Type: String
+      ProvisionedThroughput:
+        ReadCapacityUnits: 1
+        WriteCapacityUnits: 1
+
+  # 2. The Lambda Function to CREATE a new link
+  CreateLinkFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: src/create-link/
+      Handler: app.handler
+      Runtime: nodejs20.x
+      Architectures:
+        - x86_64
+      # Pass the table name as an environment variable
+      Environment:
+        Variables:
+          LINKS_TABLE_NAME: !Ref LinksTable
+      # Give this function permission to WRITE to the table
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref LinksTable
+      # Link this function to our API Gateway
+      Events:
+        ApiEvent:
+          Type: Api
+          Properties:
+            Path: /links
+            Method: post
+      # Enable X-Ray and Insights
+      Tracing: Active
+      
+
+  # 3. The Lambda Function to GET (and redirect) a link
+  GetLinkFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: src/get-link/
+      Handler: app.handler
+      Runtime: nodejs20.x
+      Architectures:
+        - x86_64
+      # Pass the table name as an environment variable
+      Environment:
+        Variables:
+          LINKS_TABLE_NAME: !Ref LinksTable
+      # Give this function permission to READ from the table
+      Policies:
+        - DynamoDBReadPolicy:
+            TableName: !Ref LinksTable
+      # Link this function to our API Gateway
+      Events:
+        ApiEvent:
+          Type: Api
+          Properties:
+            # {shortId} is a "path parameter" that gets passed to our function
+            Path: /{shortId}
+            Method: get
+            TimeoutInMillis: 10000
+      # Enable X-Ray and Insights
+      Tracing: Active
+      
+
+
+Outputs:
+  WebEndpoint:
+    Description: API Gateway endpoint URL for Prod stage
+    Value: !Sub "https://${ServerlessRestApi}.execute-api.${AWS::Region}.${AWS::URLSuffix}/Prod/"
+# # More info about Globals: https://github.com/awslabs/serverless-application-model/blob/master/docs/globals.rst
+Globals:
+  Function:
+    Tracing: Active
+    # You can add LoggingConfig parameters such as the Logformat, Log Group, and SystemLogLevel or ApplicationLogLevel. Learn more here https://docs.aws.amazon.com/serverless-application-model/latest/developerguide/sam-resource-function.html#sam-function-loggingconfig.
+    LoggingConfig:
+      LogFormat: JSON
+  Api:
+    TracingEnabled: true
